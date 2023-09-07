@@ -1,0 +1,27 @@
+_format_version: "1.1"
+
+services:
+  - name: my-service-8060
+    url: http://my-service:9090
+
+  - name: my-kong-service
+    url: http://my-service:9090
+
+routes:
+  - name: my-load-balancer-route
+    paths:
+      - /v1/cms/login
+    service:
+      name: my-service-8060
+      name: my-service-8070
+
+routes:
+  - name: my-route-8060
+    paths:
+      - /v1/cms/login  # Replace with your desired path
+    service: my-service-8060  # Name of the corresponding service
+
+  - name: my-route-8070
+    paths:
+      - /v1/cms/login  # Replace with your desired path
+    service: my-service-8070  # Name of the corresponding service

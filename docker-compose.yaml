@@ -1,0 +1,281 @@
+version: "3.8"
+
+services:
+
+#######################################
+# Services
+#######################################
+
+  my-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: "my-service"
+    volumes:
+      - .env:/app/.env
+      - ./db/migrations:/app/db/migrations
+    ports:
+      - "8060:9090"
+    networks:
+      - mynetwork
+    depends_on:
+      mysqldb-replica:
+        condition: service_healthy
+      mysqldb:
+        condition: service_healthy
+      myRedis:
+        condition: service_healthy
+
+#######################################
+# proxysql
+#######################################
+  proxysql:
+    image: proxysql/proxysql:2.5.5
+    container_name: "proxysql"
+    ports:
+      - "6033:6033" # ProxySQL admin port
+      - "6032:6032" # ProxySQL MySQL frontend port
+#    environment:
+#        MYSQL_PROXY_USER: root
+#        MYSQL_PROXY_PASSWORD: ZXCasdqwe123!
+#        MYSQL_PROXY_BACKENDS: 1 # Change this based on the number of MySQL instances
+    networks:
+      - mynetwork
+#    volumes:
+#      - ./db/proxySQL/proxysql.cnf:/etc/proxysql.cnf
+    depends_on:
+      - mysqldb
+      - mysqldb-replica
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: "phpmyadmin"
+    ports:
+      - 8888:80
+    environment:
+      PMA_HOST: proxysql
+      PMA_USER: root
+      PMA_PASSWORD: root
+      PMA_PORT: 6033 # Use ProxySQL's MySQL frontend port
+    networks:
+      - mynetwork
+
+
+  my-service-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: "my-service-1"
+    volumes:
+      - .env:/app/.env
+      - ./db/migrations:/app/db/migrations
+    ports:
+      - "8070:9090"
+    networks:
+      - mynetwork
+    depends_on:
+      mysqldb-replica:
+        condition: service_healthy
+      mysqldb:
+        condition: service_healthy
+
+  migrate:
+    image: migrate/migrate:v4.15.2
+    networks:
+      - mynetwork
+    volumes:
+      - ./db/migrations:/migrations
+    links:
+      - mysqldb
+      - mysqldb-replica
+    depends_on:
+      mysqldb:
+        condition: service_healthy
+      mysqldb-replica:
+        condition: service_healthy
+    entrypoint: >
+      sh -c '
+      migrate -path /migrations -database "mysql://root:ZXCasdqwe123!@tcp(mysqldb:3306)/bubbme_db" up &&
+      migrate -path /migrations -database "mysql://root:ZXCasdqwe123!@tcp(mysqldb-replica:3306)/bubbme_db" up
+      '
+#
+#  migrate:
+#    image: migrate/migrate:v4.15.2
+#    networks:
+#      - mynetwork
+#    volumes:
+#      - ./db/migrations:/migrations
+#    command: ["-path", "/migrations", "-database",  "mysql://root:ZXCasdqwe123!@tcp(mysqldb:3306)/bubbme_db", "up"]
+#    links:
+#      - mysqldb
+#    depends_on:
+#      mysqldb:
+#        condition: service_healthy
+#
+#  migrate2:
+#    image: migrate/migrate:v4.15.2
+#    networks:
+#      - mynetwork
+#    volumes:
+#      - ./db/migrations:/migrations
+#    command: [ "-path", "/migrations", "-database",  "mysql://root:ZXCasdqwe123!@tcp(mysqldb-replica:3306)/bubbme_db", "up" ]
+#    links:
+#      - mysqldb-replica
+#    depends_on:
+#      mysqldb-replica:
+#        condition: service_healthy
+
+
+#  migrate:
+#    image: migrate/migrate:v4.15.2
+#    profiles: ["tools"]
+#    volumes:
+#      - ./db/migrations:/migrations
+#    entrypoint:
+#      [
+#        "migrate",
+#        "-path",
+#        "/migrations",
+#        "-database",
+#        "mysql://root:ZXCasdqwe123!@tcp(127.0.0.1:3306)/bubbme_db?loc=Asia%2FJakarta&multiStatements=true&parseTime=1",
+#      ]
+##    entrypoint: ["/app/custom-entrypoint.sh"]
+#    command: ["up"]
+#    depends_on:
+#      mysqldb:
+#        condition: service_healthy
+#    restart: on-failure
+
+
+  #######################################
+  # Mysql DB Master
+  #######################################
+
+  mysqldb:
+    image: mysql:latest
+    container_name: "mysqldb"
+    command: mysqld --default-authentication-plugin=mysql_native_password
+    ports:
+      - 3307:3306
+    volumes:
+      - ./db/db_master/mysql_data:/var/lib/mysql
+      - ./db/db_master/master.cnf:/etc/my.cnf
+    environment:
+      MYSQL_ROOT_PASSWORD: ZXCasdqwe123!
+      MYSQL_DATABASE: bubbme_db
+#      MYSQL_USER: root
+#      MYSQL_PASSWORD: ZXCasdqwe123!
+      MYSQL_LOG_BIN: 1
+    networks:
+        - mynetwork
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      retries: 5
+    restart: always
+
+  #######################################
+  # Mysql DB Replica / slave
+  #######################################
+
+  mysqldb-replica:
+    image: mysql:latest
+    container_name: "mysqldb-replica"
+    command: mysqld --default-authentication-plugin=mysql_native_password
+    ports:
+      - 3308:3306
+    volumes:
+      - ./db/db_slave/mysql_data:/var/lib/mysql
+      - ./db/db_slave/slave.cnf:/etc/my.cnf
+    environment:
+      MYSQL_ROOT_PASSWORD: ZXCasdqwe123!
+      MYSQL_DATABASE: bubbme_db
+      MYSQL_REPLICATION_MODE: slave
+      MYSQL_MASTER_HOST: mysqldb
+      MYSQL_MASTER_PASSWORD: ZXCasdqwe123!
+    networks:
+      - mynetwork
+    depends_on:
+      mysqldb:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      retries: 5
+
+#######################################
+# Redis
+#######################################
+  myRedis:
+    image: redis:latest
+    container_name: "myredis"
+    ports:
+      - "6379:6379"
+    networks:
+      - mynetwork
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+
+networks:
+  mynetwork:
+    driver: bridge
+
+
+
+#services:
+#  mysql:
+#    image: mysql:latest
+#    environment:
+#      MYSQL_ROOT_PASSWORD: ZXCasdqwe123!
+#      MYSQL_DATABASE: bubbme
+#    networks:
+#      - bubbmeNetwork
+#
+#  my-service:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile # Path to your Dockerfile
+#    ports:
+#      - "8070:9090"
+#    volumes:
+#      - .:/app
+##    command: ["/app/bubbme-backend", "-conf", "/app/.env"]
+#    networks:
+#      - bubbmeNetwork
+#    depends_on:
+#      - mysql
+#
+#networks:
+#  bubbmeNetwork:
+
+#services:
+#  web:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile
+#    image: app
+#    container_name: app
+#    restart: unless-stopped
+#    env_file: .env
+#    ports:
+#      - "$PORT:$PORT"
+#    depends_on:
+#      - mongodb
+#
+#  mongodb:
+#    image: mongo:6.0
+#    container_name: mongodb
+#    restart: unless-stopped
+#    env_file: .env
+#    environment:
+#      - MONGO_INITDB_ROOT_USERNAME=$DB_USER
+#      - MONGO_INITDB_ROOT_PASSWORD=$DB_PASS
+#    ports:
+#      - "$DB_PORT:$DB_PORT"
+#    volumes:
+#      - dbdata:/data/db
+#
+#volumes:
+#  dbdata:

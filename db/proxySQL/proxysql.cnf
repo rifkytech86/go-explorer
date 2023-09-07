@@ -1,0 +1,44 @@
+# ProxySQL Configuration
+
+# Administration settings
+admin_variables=
+{
+    admin_credentials="admin:admin"
+    mysql_ifaces="0.0.0.0:6032"
+    refresh_interval=2000
+    debug=false
+}
+
+# Connection Pool settings
+mysql_variables=
+{
+    threads=4
+    max_connections=2048
+    poll_timeout=2000
+    interfaces="0.0.0.0:6033;/tmp/proxysql.sock"
+}
+
+# Backend MySQL servers
+mysql_servers =
+(
+    { address="mysqldb", port=3306, hostgroup=0 }
+)
+
+# User mappings
+mysql_users =
+(
+   {
+       username = "root"
+       password = "root"
+       default_hostgroup = 0
+       max_connections=1000
+       default_schema="information_schema"
+       active = 1
+   }
+)
+
+# Query rules
+mysql_query_rules =
+(
+    { rule_id=1, active=1, match_pattern="^SELECT.*", destination_hostgroup=1, apply=1 }
+)
